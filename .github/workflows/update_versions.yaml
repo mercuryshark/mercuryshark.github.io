@@ -1,0 +1,68 @@
+name: Update Versions List
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "versions/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-version-index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan versions folder and write versions.json
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+
+            const dir = "versions";
+            const entries = fs.existsSync(dir)
+              ? fs.readdirSync(dir, { withFileTypes: true })
+              : [];
+
+            const versions = [];
+
+            for (const entry of entries) {
+              if (entry.isFile() && /\.html?$/i.test(entry.name)) {
+                const id = entry.name.replace(/\.html?$/i, "");
+                versions.push({
+                  id,
+                  file: `${dir}/${encodeURIComponent(entry.name)}`
+                });
+              } else if (entry.isDirectory()) {
+                const subIndex = path.join(dir, entry.name, "index.html");
+                if (fs.existsSync(subIndex)) {
+                  versions.push({
+                    id: entry.name,
+                    file: `${dir}/${encodeURIComponent(entry.name)}/`
+                  });
+                }
+              }
+            }
+
+            versions.sort((a, b) =>
+              b.id.localeCompare(a.id, undefined, { numeric: true, sensitivity: "base" })
+            );
+
+            fs.writeFileSync("versions.json", JSON.stringify(versions, null, 2) + "\n");
+          '
+
+      - name: Commit updated versions.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add versions.json
+          if git diff --cached --quiet; then
+            echo "No changes to versions.json"
+          else
+            git commit -m "Auto-update versions.json"
+            git push
+          fi
